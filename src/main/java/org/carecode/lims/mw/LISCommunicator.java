@@ -27,6 +27,11 @@ public class LISCommunicator {
         this.middlewareSettings = settings;
     }
 
+    public void sendWorkingListToAnalyzer(String sampleId) {
+        // To be implemented: build ASTM response with H, P, O, L records
+        // and send it to the analyzer via serial port
+    }
+
     public Map<String, String> parseQueryParams(String query) {
         Map<String, String> params = new HashMap<>();
         String[] pairs = query.split("&");

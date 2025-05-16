@@ -13,6 +13,8 @@ import com.fazecast.jSerialComm.SerialPort;
 
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.List;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -58,6 +60,10 @@ public class HumaStar600 {
     public static MiddlewareSettings middlewareSettings;
     public static LISCommunicator limsUtils;
     public static boolean testingLis = false;
+
+    private static PatientRecord currentPatient;
+    private static String currentSampleId;
+    private static List<ResultsRecord> currentResults = new ArrayList<>();
 
     public static void main(String[] args) {
         logger.info("HumaStar600 Middleware started at: " + LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
@@ -180,12 +186,56 @@ public class HumaStar600 {
         }
     }
 
+    private static void handleHeader(String[] fields) {
+        try {
+            String sender = fields.length > 4 ? fields[4] : "";
+            String version = fields.length > 12 ? fields[12] : "";
+            String timestamp = fields.length > 13 ? fields[13] : "";
+
+            logger.info("ASTM Header received - Sender: " + sender + ", Version: " + version + ", Time: " + timestamp);
+
+            // Optionally: reset session data if needed
+            currentPatient = null;
+            currentSampleId = null;
+            currentResults.clear();
+
+        } catch (Exception e) {
+            logger.error("Error processing ASTM H (Header) record", e);
+        }
+    }
+
     private static String extractTestCode(String rawId) {
         if (rawId == null || !rawId.contains("^^^")) {
             return null;
         }
         String[] parts = rawId.split("\\^\\^\\^");
         return parts.length > 1 ? parts[1].trim() : null;
+    }
+
+    private static void handlePatient(String[] fields) {
+        String patientId = fields.length > 2 ? fields[2] : "Unknown";
+        String patientNameRaw = fields.length > 5 ? fields[5] : "";
+        String[] nameParts = patientNameRaw.split("\\^");
+        String fullName = nameParts.length >= 2 ? nameParts[1] + " " + nameParts[0] : patientNameRaw;
+
+        currentPatient = new PatientRecord(
+                0,
+                patientId,
+                null,
+                fullName,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+        );
+    }
+
+    private static void handleOrder(String[] fields) {
+        currentSampleId = fields.length > 2 ? fields[2].split("\\^")[0] : "UnknownSample";
+        // You may also extract specimen type from fields[15] if needed
     }
 
     private static void handleResult(String[] fields) {
@@ -196,7 +246,7 @@ public class HumaStar600 {
             }
 
             String testIdRaw = fields[2];        // Universal Test ID, format ^^^TESTCODE
-            String resultValue = fields[3];      // Actual result
+            String resultValue = fields[3];      // Actual result (as String, might be ">10", "<2.3", etc.)
             String units = fields[4];            // Units, e.g., mmol/L
 
             String resultFlag = fields.length > 6 ? fields[6] : ""; // e.g., N = normal, A = abnormal
@@ -210,25 +260,100 @@ public class HumaStar600 {
             }
 
             ResultsRecord resultsRecord = new ResultsRecord(
-                    0,
+                    0, // frameNumber
                     testCode,
                     resultValue,
-                    null,
-                    null,
-                    resultFlag,
-                    "Serum",
                     units,
                     resultTime,
-                    status,
-                    "" // patient ID will be set when assembling full DataBundle
+                    "HumaLyte", // instrument name
+                    currentSampleId != null ? currentSampleId : "UnknownSample"
             );
 
-            // Save to data bundle or result list (depending on your architecture)
             logger.info("Parsed result: " + testCode + " = " + resultValue + " " + units + " (" + status + ")");
-            // You can later collect this in a session-wide data structure
+            currentResults.add(resultsRecord);
 
         } catch (Exception e) {
             logger.error("Error parsing R record", e);
+        }
+    }
+
+    private static void handleTerminator(String[] fields) {
+        if (currentPatient == null || currentSampleId == null || currentResults.isEmpty()) {
+            logger.warn("Skipping incomplete message (missing patient/sample/results)");
+            return;
+        }
+
+        try {
+            DataBundle dataBundle = new DataBundle();
+            dataBundle.setMiddlewareSettings(middlewareSettings);
+            dataBundle.setPatientRecord(currentPatient);
+
+            for (ResultsRecord rr : currentResults) {
+                rr.setSampleId(currentSampleId);
+                dataBundle.addResultsRecord(rr);
+            }
+
+            limsUtils.pushResults(dataBundle);
+            logger.info("Result bundle pushed for sample: " + currentSampleId + " / patient: " + currentPatient.getPatientId());
+
+        } catch (Exception e) {
+            logger.error("Failed to push DataBundle to LIS", e);
+        } finally {
+            // Reset session
+            currentPatient = null;
+            currentSampleId = null;
+            currentResults.clear();
+        }
+    }
+
+    private static void handleQuery(String[] fields) {
+        try {
+            // ASTM Q Record - Field 3 contains the sample ID or rack ID
+            // Format: PatientID^SampleID or ^SampleID or ALL
+            String sampleId = "UnknownSample";
+
+            if (fields.length > 2 && fields[2] != null && !fields[2].isEmpty()) {
+                String[] idParts = fields[2].split("\\^");
+                if (idParts.length == 2 && !idParts[1].isEmpty()) {
+                    sampleId = idParts[1];
+                } else if (!fields[2].startsWith("^")) {
+                    sampleId = idParts[0];
+                }
+            }
+
+            logger.info("ASTM Query received for sample ID: " + sampleId);
+
+            // Delegate to LISCommunicator to send patient + order records
+            limsUtils.sendWorkingListToAnalyzer(sampleId);
+
+        } catch (Exception e) {
+            logger.error("Error handling ASTM Q record", e);
+        }
+    }
+
+    public static void sendAck() {
+        try {
+            if (analyzerPort != null && analyzerPort.isOpen()) {
+                analyzerPort.writeBytes(new byte[]{ACK}, 1);
+                logger.info("ACK sent to analyzer");
+            } else {
+                logger.warn("Cannot send ACK — port not open");
+            }
+        } catch (Exception e) {
+            logger.error("Failed to send ACK", e);
+        }
+    }
+
+    public static void sendNak() {
+        try {
+            if (analyzerPort != null && analyzerPort.isOpen()) {
+                analyzerPort.writeBytes(new byte[]{NAK}, 1);
+                logger.info("NAK sent to analyzer");
+            } else {
+                logger.warn("Cannot send NAK — port not open");
+            }
+        } catch (Exception e) {
+            logger.error("Failed to send NAK", e);
         }
     }
 
