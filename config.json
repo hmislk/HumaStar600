@@ -1,0 +1,27 @@
+{
+    "analyzerDetails": {
+        "analyzerName": "SmartLytePlus",
+        "serialNumber": "0003",
+        "analyzerId": "225",
+        "analyzerIP": "192.168.203.205",
+        "analyzerPort": 8080,
+        "hostPort": 80,
+        "hostIp": "https://rh.carecode.org/rh/",
+        "communicationType": "TCP/IP",
+        "socketCommunicationType": "Client",
+        "resultSendingCriteria": "Sample",
+        "automaticResultSending": "Yes",
+        "hostQueryInUse": "Yes",
+        "multipleHostQuery": "No",
+        "sampleIdSendingDelay": "0",
+        "resultSendingDelay": "0",
+        "qcResultSendingInUse": "Yes",
+        "departmentAnalyzerId": "198593",
+        "departmentId": "9039"
+    },
+    "limsSettings": {
+        "limsServerBaseUrl": "https://rh.carecode.org/rh/api/middleware",
+        "username": "buddhika",
+        "password": "Buddhika123@"
+    }
+}
