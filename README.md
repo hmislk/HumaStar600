@@ -1,1 +1,1 @@
-# HumaLyte
+# HumaStar600

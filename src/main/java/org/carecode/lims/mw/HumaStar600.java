@@ -1,4 +1,4 @@
-// ChatGPT contribution: Production middleware for HumaLyte Plus 5 (one result per transmission)
+// ChatGPT contribution: Production middleware for HumaStar600
 package org.carecode.lims.mw;
 
 import com.fazecast.jSerialComm.SerialPort;
@@ -6,38 +6,25 @@ import com.google.gson.Gson;
 import java.io.FileReader;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Paths;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
-import java.util.Map;
-import java.util.concurrent.Executors;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.carecode.lims.libraries.*;
 
-public class HumaLytePlus5 {
+public class HumaStar600 {
 
-    public static final Logger logger = LogManager.getLogger("HumaLytePlus5Logger");
+    public static final Logger logger = LogManager.getLogger("HumaStar600Logger");
     public static MiddlewareSettings middlewareSettings;
     public static LISCommunicator limsUtils;
     public static boolean testingLis = false;
 
     public static void main(String[] args) {
-        logger.info("HumaLytePlus5 Middleware started at: " + LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
+        logger.info("HumaStar600 Middleware started at: " + LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
         loadSettings();
-
         if (middlewareSettings != null) {
             limsUtils = new LISCommunicator(logger, middlewareSettings);
-
-            if (testingLis) {
-                logger.info("Testing LIS started");
-                testLis();
-                logger.info("Testing LIS Ended. System will now shutdown.");
-                System.exit(0);
-            }
-
             listenToAnalyzer();
         } else {
             logger.error("Failed to load settings.");
@@ -51,23 +38,6 @@ public class HumaLytePlus5 {
             logger.info("Settings loaded from config.json");
         } catch (IOException e) {
             logger.error("Failed to load settings from config.json", e);
-        }
-    }
-
-    public static void testLis() {
-        logger.info("Starting LIMS test process...");
-        String filePath = "response.txt";
-
-        try {
-            String responseContent = new String(Files.readAllBytes(Paths.get(filePath)), StandardCharsets.UTF_8);
-            Map<String, String> params = limsUtils.parseQueryParams(responseContent);
-            DataBundle dataBundle = limsUtils.createDataBundleFromParams(params);
-            limsUtils.pushResults(dataBundle);
-            logger.info("Test results sent to LIMS successfully.");
-        } catch (IOException e) {
-            logger.error("Failed to read test data from file: " + filePath, e);
-        } catch (Exception e) {
-            logger.error("An unexpected error occurred during the LIMS test process.", e);
         }
     }
 
